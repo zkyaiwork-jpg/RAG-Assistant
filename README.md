@@ -299,7 +299,7 @@ Vector Database:
 Chroma
 
 Chunk Size:
-200
+100（由 100/200/300/400 四组切片对照实验确定，见 evals/results/rag_chunk_size_v2_summary.csv）
 
 Chunk Overlap:
 0
@@ -308,7 +308,7 @@ TopK:
 3
 
 Distance Threshold:
-0.8
+三段式拒答 —— 最近距离 <0.65 直接回答；0.65~0.85 由模型判定片段能否支撑回答；≥0.85 直接拒答（候选池 10，重排后取 TopK）
 ```
 
 ---

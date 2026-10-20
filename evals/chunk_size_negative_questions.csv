@@ -1,0 +1,11 @@
+question_id,question,question_type,expected_result
+51,公司的年终奖按什么标准计算和发放？,negative,no_relevant_document
+52,员工每月的工资几号到账？,negative,no_relevant_document
+53,公司股票期权的行权价格是多少？,negative,no_relevant_document
+54,新员工的试用期一般是多久？,negative,no_relevant_document
+55,公司每年安排员工体检几次？,negative,no_relevant_document
+56,公司年会在每年几月举办？,negative,no_relevant_document
+57,客户投诉必须在几小时内响应？,negative,no_relevant_document
+58,办公电脑的采购预算上限是多少？,negative,no_relevant_document
+59,公司为员工提供哪些商业保险？,negative,no_relevant_document
+60,加班费按工资的几倍计算？,negative,no_relevant_document
