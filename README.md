@@ -262,31 +262,31 @@ Department 与 Team 建立组织关系，用户可以归属于对应部门和团
 ```text
 POST /chat
     ↓
-JWT
+JWT 校验（含 token_version，改密后旧 token 立即失效）
     ↓
-当前 User
+file_view Permission（RBAC 功能权限）
     ↓
-file_view Permission
-    ↓
-SQL 查询可访问 Documents
+SQL 查询可访问 Documents（角色 + 部门 + 小组 + 可见性）
     ↓
 Document Whitelist
     ↓
 Question Embedding
     ↓
-Chroma TopK Search
+Chroma 召回候选池 Top10（where document_id ∈ 白名单）
     ↓
-Permission Recheck
+Permission Recheck（逐条回验，防 metadata 漂移）
     ↓
-Distance < Threshold
+硬拒答：池内最近距离 ≥ 0.85 → 直接返回「没有找到相关资料」
     ↓
-Top Knowledge Chunks
+bge-reranker-base 对 10 条候选重排（失败回落 Chroma 顺序）
     ↓
-Build Context
+模糊带判定：0.65 ≤ 最近距离 < 0.85 → 模型判断片段能否支撑回答
+    ↓
+取重排后前 3 条 → Build Context
     ↓
 DeepSeek
     ↓
-Answer + Sources
+Answer + Sources（文档 / 文件夹 / 分块号）
 ```
 
 当前主要检索参数：
@@ -296,125 +296,127 @@ Embedding Model:
 BAAI/bge-small-zh-v1.5
 
 Vector Database:
-Chroma
+Chroma（本地持久化）
 
 Chunk Size:
-100（由 100/200/300/400 四组切片对照实验确定，见 evals/results/rag_chunk_size_v2_summary.csv）
+100（由 100/200/300/400 四组切片对照实验确定）
 
 Chunk Overlap:
 0
 
-TopK:
-3
+候选池:
+10（重排的输入宽度）
 
-Distance Threshold:
-三段式拒答 —— 最近距离 <0.65 直接回答；0.65~0.85 由模型判定片段能否支撑回答；≥0.85 直接拒答（候选池 10，重排后取 TopK）
+TopK:
+3（重排后进入上下文的数量）
+
+拒答策略:
+三段式 —— 最近距离 <0.65 直接回答；0.65~0.85 由模型判定片段能否支撑回答；≥0.85 直接拒答
+
+Rerank:
+BAAI/bge-reranker-base（CrossEncoder，CPU，启动时预热，失败自动回落）
 ```
 
 ---
 
 # RAG 检索评测
 
-为了避免仅通过主观体验判断 RAG 效果，项目建立了独立检索评测流程。
+评测目标：不靠主观体验判断检索质量，而是把"有没有找对条款""没有答案时会不会乱答"变成可复现、可对照的指标。
 
-评测重点关注：
+## 评测集
 
-* Top1 Hit
-* Top3 Hit
-* No Result
-* Bad Case
-* 原始检索距离
-* 不同检索策略的结果变化
+| 集合 | 规模 | 说明 |
+| --- | ---: | --- |
+| 正向题 | **308** | 每题标注「金标文档 + 条款号 + 答案片段」，覆盖全部 29 篇文档 |
+| 负向题 | **200** | near 80（主题相邻但制度未规定）/ mid 60 / far 60（业务类无关问题） |
 
-## Baseline 测试
+题目以 CSV 管理：`evals/questions_v2_positive.csv`、`evals/questions_v2_negative.csv`。
+构建脚本会用「答案关键词必须出现在声明的条款里」逐条断言，防止题号与金标错位（`evals/build_question_set.py`）。
 
-早期使用 15 道企业知识问题进行 Baseline 测试。
-
-结果：
-
-| 指标       |      结果 |
-| -------- | ------: |
-| 测试问题     |      15 |
-| Top1 命中  | 14 / 15 |
-| Top1 命中率 |  93.33% |
-| Top3 命中  | 15 / 15 |
-| Top3 命中率 |    100% |
-| 无结果      |       0 |
-
-测试发现：
-
-部分语义接近的问题虽然正确文档已经进入 Top3，但 Top1 仍可能被其他相似制度文档占据。
-
-例如：
+## 判定口径
 
 ```text
-用户问题
-   ↓
-Embedding
-   ↓
-Top3 Candidate Chunks
-   ↓
-Top1：相似但并非最佳答案
-Top2：正确答案
-Top3：其他候选
+片段级 Top1/Top3：召回的分块里是否包含【金标条款】
+负向拒答率      ：知识库确实没有答案时，是否返回空结果
 ```
 
-因此，仅关注“正确答案是否进入 Top3”并不足以完整评估检索质量，还需要关注候选结果排序。
+之所以用片段级而不是文档级：文档只有 29 篇时，文档级命中的随机基线就有约 3%；更早只有 3 篇文档时，100 与 200 两种切片的文档级 Top1 都显示 93.5%，指标已经饱和，根本无法区分优劣。
+
+## 当前线上结果
+
+| 指标 | 结果 |
+| --- | ---: |
+| 片段 Top1 | **94.5%**（291/308） |
+| 片段 Top3 | **99.0%**（305/308） |
+| 文档 Top1 / Top3 | 96.1% / 99.4% |
+| 负向拒答 | **95.0%**（190/200） |
+| └ near / mid / far | 75/80 · 57/60 · 58/60 |
+
+## 关键对照实验
+
+### 1. 切片大小（100 / 200 / 300 / 400）
+
+| chunk | 分块数 | 平均长度 | 片段Top1 | 片段Top3 | 负向拒答 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| **100** | 346 | 79 字 | **89.9%** | **93.5%** | 76% |
+| 200 | 163 | 168 字 | 79.5% | 82.5% | 83% |
+| 300 | 108 | 254 字 | 75.3% | 77.6% | 86% |
+| 400 | 85 | 322 字 | 67.5% | 69.2% | 90% |
+
+结论：**100 最优**，命中率随切片增大单调下降。拒答率的"反向提升"是假象——切片越大向量被稀释，所有距离整体漂移，正例也被推过阈值；用 AUC 剔除阈值影响后，仍是 100 的分离度最高（0.981 vs 0.931）。
+
+### 2. 候选池宽度（3 → 10）
+
+重排只能对进入候选池的片段排序。正确片段排在 4~10 名时，池子只有 3 就永远进不了重排：
+
+| 配置 | 重排 Top1 | 重排 Top3 |
+| --- | ---: | ---: |
+| 向量 Top3 + 重排 | 91.2% | 94.8% |
+| **向量 Top10 + 重排** | **94.5%** | **99.0%** |
+
+### 3. 拒答策略
+
+| 方案 | Top1 | Top3 | 拒答 |
+| --- | ---: | ---: | ---: |
+| 纯距离阈值（0.70） | 89.3% | 93.8% | 93.5% |
+| 纯距离阈值（0.75） | 91.9% | 96.4% | 82.0% |
+| **三段式（当前）** | **94.5%** | **99.0%** | **95.0%** |
+
+三段式的关键是把"要不要答"和"答哪几条"分开：只有候选池内**最近距离**参与拒答判断，模糊带（0.65~0.85）才调用一次模型判定片段能否支撑回答。
+
+## 历史演进
+
+| 阶段 | 评测集 | 说明 |
+| --- | --- | --- |
+| Baseline V1 | 15 题 | 验证链路可用，发现"正确答案进了 Top3 但 Top1 被相似文档占据" |
+| Baseline V2 | 50 题 + 10 负向 | 扩充语料后复测，首次引入负向问题检查误召回 |
+| **现行** | **308 正向 + 200 负向** | 改为片段级判定 + 分档负向，支持切片/池宽/拒答策略的对照实验 |
+
+早期 50 题版本的结论（Top1 86%、Top3 94%）已被现行评测集取代，保留在 `evals/results/` 中作为过程记录。
 
 ---
 
-## 扩展评测
+# Rerank（生产链路）
 
-后续将测试集扩展至 50 道正向问题，对生产检索参数进行离线复现。
-
-Baseline V2：
-
-| 指标       |      结果 |
-| -------- | ------: |
-| 测试问题     |      50 |
-| Top1 命中  | 43 / 50 |
-| Top1 命中率 |     86% |
-| Top3 命中  | 47 / 50 |
-| Top3 命中率 |     94% |
-| 正向无结果    |       3 |
-
-同时构造负向问题，用于检查知识库不存在答案时系统是否错误召回无关内容。
-
-对 Top1 Bad Case 进行单独记录和分析，为后续 Chunk、Embedding、Threshold 和 Rerank 优化提供依据。
-
----
-
-# Rerank 实验
-
-针对“正确答案已经进入 Top3，但排序不理想”的问题，项目进行了独立 Rerank 实验。
-
-实验模型：
-
-```text
-BAAI/bge-reranker-base
-```
-
-流程：
+重排不是实验特性，而是当前检索链路的固定环节。
 
 ```text
 Question
    ↓
-Embedding Retrieval
+Embedding → Chroma Top10 候选
    ↓
-Chroma Candidates
+bge-reranker-base（CrossEncoder，CPU）
    ↓
-Reranker
+按 Question/Chunk 相关性重排
    ↓
-重新计算 Question / Chunk 相关性
-   ↓
-重新排序
-   ↓
-LLM
+取前 3 条进入上下文
 ```
 
-Rerank 实验与生产检索链路分离，先通过离线评测验证效果，再决定是否接入生产流程。
+几个实现细节：
 
-这样可以避免未经验证的检索策略直接影响线上 RAG 行为。
+* 模型在应用启动时预热（`lifespan`），避免首个请求承担加载延迟
+* 重排**只改变顺序，不改变距离**——阈值判定始终基于双塔的原始距离
+* 重排失败自动回落到 Chroma 原始顺序，并记录 `fallback=chroma_order`，不让排序增强变成单点故障
 
 ---
 
@@ -439,19 +441,18 @@ Rerank 实验与生产检索链路分离，先通过离线评测验证效果，�
 
 ## AI / RAG
 
-* DeepSeek
-* BAAI/bge-small-zh-v1.5
-* Sentence Transformers
-* BAAI/bge-reranker-base（实验）
-* Chroma
+* DeepSeek（兼容 OpenAI SDK，模型与密钥可在界面配置、加密存库）
+* BAAI/bge-small-zh-v1.5（Embedding）
+* BAAI/bge-reranker-base（CrossEncoder 重排，CPU）
+* Chroma（本地持久化向量库）
 
 ## Document Processing
 
-* python-docx
+* python-docx（DOCX）
+* PyMuPDF（PDF）
+* TXT 纯文本
 
-当前后端文档解析器主要支持 DOCX。
-
-PDF、TXT 等格式尚未实现正式后端解析。
+三种格式均已在后端解析器注册（`app/services/parsers/`），新增格式只需实现 `BaseParser` 子类并注册到工厂。
 
 ---
 
@@ -459,16 +460,14 @@ PDF、TXT 等格式尚未实现正式后端解析。
 
 ### 知识库
 
-* DOCX 文档上传
-* 文档解析
-* 文本 Chunk
-* Embedding
-* Chroma 向量存储
-* 文档列表
-* 文档删除
-* 语义检索
-* RAG 问答
-* Sources 来源展示
+* 文档上传（DOCX / PDF / TXT）
+* 文档解析与文本分块（chunk=100）
+* Embedding 与 Chroma 向量存储
+* 文档列表、删除、改名
+* **文件夹管理**：上传时归档、已有文档可随时切换或移回未分配
+* 语义检索（带片段级来源）
+* RAG 问答（答案 + 来源引用）
+* 三段式拒答：知识库没有答案时明确拒答，不编造
 
 ### 权限
 
@@ -495,7 +494,6 @@ PDF、TXT 等格式尚未实现正式后端解析。
 * AuditLog 审计日志
 * Alembic 数据库迁移
 * RAG Evaluation
----
 
 ---
 
@@ -505,25 +503,35 @@ PDF、TXT 等格式尚未实现正式后端解析。
 enterprise-ai-kb/
 │
 ├── app/
-│   ├── api/                 # FastAPI API 路由
-│   ├── auth/                # JWT 与权限认证
-│   ├── database/            # 数据库初始化与配置
-│   ├── models/              # 数据模型
-│   ├── services/            # 核心业务服务
-│   ├── utils/               # 工具模块
+│   ├── api/                 # 业务路由（文档/检索/问答/用户/部门/小组/模型配置/审计）
+│   ├── routers/             # 认证路由
+│   ├── auth/                # JWT、密码哈希、RBAC 依赖、对象级权限
+│   ├── models/              # 10 张表（用户/角色/权限/部门/小组/文档/会话/消息/审计/模型配置）
+│   ├── services/            # 业务服务：检索、重排、拒答判定、文档、审计…
+│   │   └── parsers/         # DOCX / PDF / TXT 解析器
+│   ├── database/            # 引擎、建表、RBAC 种子、首管理员 bootstrap
+│   ├── core/                # 路径与日志配置
 │   └── main.py              # FastAPI 应用入口
 │
-├── alembic/                 # 数据库 Migration
+├── alembic/versions/        # 6 个数据库迁移
 │
-├── evals/                   # RAG 检索评测
+├── evals/                   # 评测资产
+│   ├── questions_v2_positive.csv   # 308 道正向题（金标文档+条款+答案片段）
+│   ├── questions_v2_negative.csv   # 200 道负向题（near/mid/far）
+│   ├── build_question_set.py       # 题库构建与校验
+│   └── results/                    # 切片对照、阈值扫描、拒答策略实验
 │
-├── tests/                   # 后端测试
+├── scripts/                 # 评测、重建索引、语料生成、可见性审计
 │
-├── frontend-react/          # React 前端
+├── samples/                 # 评测语料（29 篇制度文档）
 │
-├── frontend/                # 旧前端实现
+├── tests/                   # 214 个后端测试
 │
-├── scripts/                 # 项目脚本
+├── frontend-react/          # React 前端（当前）
+│
+├── frontend/                # 历史前端（Streamlit + Vue，未启用）
+│
+├── desktop/                 # Electron 桌面封装
 │
 ├── Dockerfile
 ├── docker-compose.yml
@@ -722,17 +730,22 @@ LLM
 
 # 后续计划
 
-当前项目仍在持续迭代，后续重点包括：
+已完成：
 
-* [ ] 完善 Team 管理功能
-* [ ] 扩展 PDF / TXT 等文档解析
-* [ ] 继续扩大 RAG Evaluation Dataset
-* [ ] 分析并优化 Top1 Bad Case
-* [ ] 对比 Embedding / Rerank 策略
-* [ ] 优化 Chunk Strategy
-* [ ] 完善前端权限管理体验
-* [ ] 完善自动化测试
-* [ ] 完善部署流程
+* [x] Team（小组）管理与小组级文档可见性
+* [x] PDF / TXT 文档解析
+* [x] 评测集扩展到 308 正向 + 200 负向，并改为片段级判定
+* [x] 切片大小 / 候选池宽度 / 拒答策略的对照实验
+* [x] 文档文件夹分配与切换
+* [x] 自动化测试覆盖权限矩阵、检索、拒答、迁移（214 个用例）
+
+后续重点：
+
+* [ ] 分析剩余 Top1 Bad Case（约 5%，集中在跨条款综合类问题）
+* [ ] 对比更强的 Embedding 与 Rerank 模型（bge-large / bge-m3）
+* [ ] 将阈值标定固化为脚本，换模型后可一键重标
+* [ ] 前端权限管理体验优化
+* [ ] 部署流程与桌面打包流程完善
 
 ---
 
