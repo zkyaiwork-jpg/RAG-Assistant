@@ -1,10 +1,9 @@
-import { useDesktopUser } from '../hooks/useDesktopUser'
+import { useDisplayName } from '../hooks/useDisplayName'
 import { useAuth } from '../auth/AuthContext'
 
 export function TopBar() {
-  const { userName } = useDesktopUser()
+  const { displayName, initial } = useDisplayName()
   const { logout } = useAuth()
-  const displayName = userName || '用户'
 
   return (
     <header className="sticky top-0 z-10 flex h-16 items-center gap-5 border-b border-outline-variant bg-white px-5 md:px-6">
@@ -47,7 +46,7 @@ export function TopBar() {
           aria-label="用户菜单"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-fixed text-sm font-semibold text-primary">
-            {displayName.slice(0, 1)}
+            {initial}
           </span>
           <span className="hidden text-left sm:block">
             <span className="block text-sm font-semibold leading-tight text-on-surface">{displayName}</span>

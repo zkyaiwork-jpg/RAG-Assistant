@@ -8,10 +8,10 @@ import { HeroCard } from '../components/dashboard/HeroCard'
 import { QuickActions } from '../components/dashboard/QuickActions'
 import { RecentDocuments, type RecentDocument } from '../components/dashboard/RecentDocuments'
 import { StatCard } from '../components/dashboard/StatCard'
-import { useDesktopUser } from '../hooks/useDesktopUser'
+import { useDisplayName } from '../hooks/useDisplayName'
 
 export function Dashboard() {
-  const { userName } = useDesktopUser()
+  const { displayName } = useDisplayName()
   const [stats, setStats] = useState<SystemStats | null>(null)
   const [documents, setDocuments] = useState<DocumentMetadata[]>([])
   const [health, setHealth] = useState<HealthStatus | null>(null)
@@ -118,7 +118,7 @@ export function Dashboard() {
 
   return (
     <div className="space-y-6 pb-4">
-      <HeroCard userName={userName || '用户'} />
+      <HeroCard userName={displayName} />
 
       {serviceStatus === 'error' && <div className="flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert"><span className="material-symbols-outlined text-[19px]">error</span>AI服务启动失败，请检查日志。</div>}
       {statsError && <div className="flex items-center gap-2 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700" role="alert"><span className="material-symbols-outlined text-[19px]">error</span>工作台统计加载失败。</div>}

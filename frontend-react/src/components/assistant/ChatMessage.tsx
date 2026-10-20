@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import type { ChatSource } from '../../api/chat'
+import { useDisplayName } from '../../hooks/useDisplayName'
 import { SourceCard } from './SourceCard'
 
 
@@ -36,6 +37,7 @@ const markdownComponents = {
 
 export function ChatMessage({ message }: { message: Message }) {
   const isUser = message.role === 'user'
+  const { initial } = useDisplayName()
 
   return (
     <div className={`flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
@@ -70,7 +72,7 @@ export function ChatMessage({ message }: { message: Message }) {
         )}
       </div>
 
-      {isUser && <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e7efff] text-sm font-semibold text-primary">张</span>}
+      {isUser && <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e7efff] text-sm font-semibold text-primary">{initial}</span>}
     </div>
   )
 }
