@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.team import Team
 from app.services.document_permission import can_delete_document, can_edit_document
 from app.services.document_service import UPLOAD_DIR
+from app.services.folder_service import get_folder
 from app.services.vector_store import collection
 
 
@@ -128,6 +129,25 @@ def delete_owned_document(database: Session, current_user: User, filename: str) 
     }
 
 
+def document_folder_snapshot(document_id: int) -> dict:
+    """Return the folder fields currently stored in this document's vector metadata."""
+    try:
+        result = collection.get(where={"document_id": document_id}, include=["metadatas"])
+    except Exception as exc:
+        logger.error(
+            "Document folder snapshot failed document_id=%s error_type=%s",
+            document_id, type(exc).__name__,
+        )
+        raise HTTPException(status_code=500, detail="读取文档文件夹信息失败") from exc
+    for metadata in result.get("metadatas") or []:
+        if isinstance(metadata, dict):
+            return {
+                "folder_id": metadata.get("folder_id"),
+                "folder_name": metadata.get("folder_name") or metadata.get("category"),
+            }
+    return {"folder_id": None, "folder_name": None}
+
+
 def update_owned_document_metadata(
     database: Session,
     current_user: User,
@@ -137,6 +157,8 @@ def update_owned_document_metadata(
     visibility: DocumentVisibility | None = None,
     team_id: int | None = None,
     team_id_supplied: bool = False,
+    folder_id: int | None = None,
+    folder_id_supplied: bool = False,
 ) -> Document:
     document = _get_sql_document(database, document_id=document_id)
     if not can_edit_document(current_user, document):
@@ -169,22 +191,38 @@ def update_owned_document_metadata(
     else:
         target_department_id = document.department_id
 
+    target_folder: dict | None = None
+    if folder_id_supplied and folder_id is not None:
+        target_folder = get_folder(folder_id)
+        if target_folder is None:
+            raise HTTPException(status_code=400, detail="所选文件夹不存在")
+
     snapshot = _snapshot_vectors(document.id)
     vector_ids = snapshot.get("ids") or []
     original_metadatas = snapshot.get("metadatas") or []
     updated_metadatas = [dict(metadata) for metadata in original_metadatas]
-    if target_visibility is DocumentVisibility.TEAM:
-        for metadata in updated_metadatas:
+    for metadata in updated_metadatas:
+        if target_visibility is DocumentVisibility.TEAM:
             metadata["visibility"] = target_visibility.value
             metadata["team_id"] = target_team_id
             metadata["department_id"] = target_department_id
-    else:
-        for metadata in updated_metadatas:
-            if visibility is not None:
-                metadata["visibility"] = visibility.value
+        elif visibility is not None:
+            metadata["visibility"] = visibility.value
+        # 文件夹是组织结构信息，只存在于向量 metadata 与文档列表接口中。
+        # Chroma 的 update 是“合并”语义，只有显式写入 None 才会删除键，
+        # 因此移回“未分配文件夹”时要把这三个键置为 None 而不是 pop。
+        if folder_id_supplied:
+            if folder_id is None:
+                metadata["folder_id"] = None
+                metadata["folder_name"] = None
+                metadata["category"] = None
+            else:
+                metadata["folder_id"] = folder_id
+                metadata["folder_name"] = target_folder["name"]
+                metadata["category"] = target_folder["name"]
 
     try:
-        metadata_changed = visibility is not None or team_id_supplied or (
+        metadata_changed = visibility is not None or team_id_supplied or folder_id_supplied or (
             target_visibility is DocumentVisibility.TEAM
             and document.department_id != target_department_id
         )
@@ -221,7 +259,8 @@ def update_owned_document_metadata(
         raise HTTPException(status_code=500, detail="文档修改失败，已尝试恢复原数据") from exc
 
     logger.info(
-        "Document metadata updated user_id=%s document_id=%s visibility_changed=%s name_changed=%s",
+        "Document metadata updated user_id=%s document_id=%s visibility_changed=%s name_changed=%s folder_changed=%s",
         current_user.id, document_id, visibility is not None, original_name is not None,
+        folder_id_supplied,
     )
     return document

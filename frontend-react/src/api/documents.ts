@@ -73,12 +73,14 @@ export type UpdateDocumentResponse = {
   filename: string
   original_name: string
   visibility: DocumentVisibility
+  folder_id?: number | null
+  folder_name?: string | null
   updated_time: string
 }
 
 export async function updateDocument(
   documentId: number,
-  payload: { original_name?: string; visibility?: DocumentVisibility; team_id?: number },
+  payload: { original_name?: string; visibility?: DocumentVisibility; team_id?: number; folder_id?: number | null },
 ): Promise<UpdateDocumentResponse> {
   const response = await apiClient.patch<UpdateDocumentResponse>(`/documents/${documentId}`, payload)
   return response.data

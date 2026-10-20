@@ -108,10 +108,10 @@ export function Knowledge() {
     await loadDocuments()
   }
 
-  const handleEdit = async (documentId: number, payload: { original_name?: string; visibility?: DocumentVisibility }) => {
+  const handleEdit = async (documentId: number, payload: { original_name?: string; visibility?: DocumentVisibility; folder_id?: number | null }) => {
     await updateDocument(documentId, payload)
     setEditingDocument(null)
-    setDeleteFeedback({ type: 'success', message: '文档信息修改成功，列表已刷新。' })
+    setDeleteFeedback({ type: 'success', message: '文档信息已更新，列表已刷新。' })
     await loadDocuments()
   }
 
@@ -209,7 +209,7 @@ export function Knowledge() {
 
       <DocumentDetailDrawer document={selectedDocument} onClose={() => setSelectedDocument(null)} />
       <UploadModal open={uploadOpen} folders={folders} onClose={() => setUploadOpen(false)} onUpload={handleUpload} allowedVisibilities={allowedVisibilities} teams={teams} currentTeamId={currentUser?.role?.name === 'employee' || currentUser?.role?.name === 'leader' ? currentUser.team?.id : undefined} />
-      <EditDocumentModal document={editingDocument} onClose={() => setEditingDocument(null)} onSave={handleEdit} allowedVisibilities={allowedVisibilities} />
+      <EditDocumentModal document={editingDocument} folders={folders} onClose={() => setEditingDocument(null)} onSave={handleEdit} allowedVisibilities={allowedVisibilities} />
       <CreateFolderModal open={folderModalOpen} onClose={() => setFolderModalOpen(false)} onCreate={handleCreateFolder} />
 
       {pendingDelete && (

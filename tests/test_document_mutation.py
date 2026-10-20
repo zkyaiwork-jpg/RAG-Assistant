@@ -397,3 +397,158 @@ def test_chroma_only_legacy_document_cannot_be_deleted(mutation_context):
     assert response.status_code == 404
     assert collection.get(ids=["legacy:0"])["ids"] == ["legacy:0"]
     assert (documents_dir / "legacy.docx").exists()
+
+
+def _isolate_folder_store(monkeypatch, tmp_path):
+    """Keep the folder SQLite file inside the test temporarily."""
+    from app.services import folder_service
+
+    monkeypatch.setattr(folder_service, "CHAT_HISTORY_DB", tmp_path / "chat_history.db")
+    return folder_service
+
+
+def test_folder_can_be_assigned_to_existing_document(mutation_context, monkeypatch, tmp_path):
+    client, tokens, ids, testing_session, collection, _ = mutation_context
+    from app.models.audit_log import AuditLog
+
+    folder_service = _isolate_folder_store(monkeypatch, tmp_path)
+    folder = folder_service.create_folder("制度文件")
+
+    response = client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["manager"]),
+        json={"folder_id": folder["id"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["folder_id"] == folder["id"]
+    assert response.json()["folder_name"] == "制度文件"
+    metadata = collection.get(where={"document_id": ids["employee"]})["metadatas"]
+    assert metadata
+    assert {(item["folder_id"], item["folder_name"], item["category"]) for item in metadata} == {
+        (folder["id"], "制度文件", "制度文件")
+    }
+    with testing_session() as database:
+        audit = database.scalar(
+            select(AuditLog).where(
+                AuditLog.action == "document_update",
+                AuditLog.result == "success",
+            )
+        )
+        assert audit is not None
+        assert f"folder:None->{folder['id']}" in audit.detail
+
+
+def test_folder_can_switch_and_return_to_unassigned(mutation_context, monkeypatch, tmp_path):
+    client, tokens, ids, _, collection, _ = mutation_context
+    folder_service = _isolate_folder_store(monkeypatch, tmp_path)
+    first = folder_service.create_folder("制度文件")
+    second = folder_service.create_folder("研发资料")
+
+    assert client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["admin"]),
+        json={"folder_id": first["id"]},
+    ).status_code == 200
+
+    switched = client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["admin"]),
+        json={"folder_id": second["id"]},
+    )
+    assert switched.status_code == 200
+    assert switched.json()["folder_name"] == "研发资料"
+    metadata = collection.get(where={"document_id": ids["employee"]})["metadatas"]
+    assert {item["folder_id"] for item in metadata} == {second["id"]}
+
+    cleared = client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["admin"]),
+        json={"folder_id": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["folder_id"] is None
+    assert cleared.json()["folder_name"] is None
+    metadata = collection.get(where={"document_id": ids["employee"]})["metadatas"]
+    assert metadata
+    for item in metadata:
+        # Chroma 的 update 是合并语义，用 None 表示“删除该键”。
+        assert item.get("folder_id") is None
+        assert item.get("folder_name") is None
+        assert item.get("category") is None
+
+
+def test_unknown_folder_is_rejected_without_writing(mutation_context, monkeypatch, tmp_path):
+    client, tokens, ids, _, collection, _ = mutation_context
+    folder_service = _isolate_folder_store(monkeypatch, tmp_path)
+    folder_service.create_folder("制度文件")
+    before = collection.get(where={"document_id": ids["employee"]})["metadatas"]
+
+    response = client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["admin"]),
+        json={"folder_id": 999},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "所选文件夹不存在"
+    assert collection.get(where={"document_id": ids["employee"]})["metadatas"] == before
+
+
+def test_folder_assignment_requires_document_edit_permission(mutation_context, monkeypatch, tmp_path):
+    client, tokens, ids, _, collection, _ = mutation_context
+    folder_service = _isolate_folder_store(monkeypatch, tmp_path)
+    folder = folder_service.create_folder("制度文件")
+    before = collection.get(where={"document_id": ids["employee"]})["metadatas"]
+
+    response = client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["employee"]),
+        json={"folder_id": folder["id"]},
+    )
+
+    assert response.status_code == 403
+    assert collection.get(where={"document_id": ids["employee"]})["metadatas"] == before
+
+
+def test_folder_and_visibility_update_in_one_request(mutation_context, monkeypatch, tmp_path):
+    client, tokens, ids, testing_session, collection, _ = mutation_context
+    from app.models.document import Document, DocumentVisibility
+
+    folder_service = _isolate_folder_store(monkeypatch, tmp_path)
+    folder = folder_service.create_folder("制度文件")
+
+    response = client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["admin"]),
+        json={"folder_id": folder["id"], "visibility": "company", "original_name": "制度文件-员工手册.docx"},
+    )
+
+    assert response.status_code == 200
+    with testing_session() as database:
+        document = database.get(Document, ids["employee"])
+        assert document.visibility is DocumentVisibility.COMPANY
+        assert document.original_name == "制度文件-员工手册.docx"
+    metadata = collection.get(where={"document_id": ids["employee"]})["metadatas"]
+    assert {(item["folder_id"], item["visibility"]) for item in metadata} == {(folder["id"], "company")}
+
+
+def test_patch_without_folder_id_keeps_current_folder(mutation_context, monkeypatch, tmp_path):
+    client, tokens, ids, _, collection, _ = mutation_context
+    folder_service = _isolate_folder_store(monkeypatch, tmp_path)
+    folder = folder_service.create_folder("制度文件")
+    assert client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["admin"]),
+        json={"folder_id": folder["id"]},
+    ).status_code == 200
+
+    renamed = client.patch(
+        f"/documents/{ids['employee']}",
+        headers=_headers(tokens["admin"]),
+        json={"original_name": "renamed.docx"},
+    )
+
+    assert renamed.status_code == 200
+    metadata = collection.get(where={"document_id": ids["employee"]})["metadatas"]
+    assert {item["folder_id"] for item in metadata} == {folder["id"]}

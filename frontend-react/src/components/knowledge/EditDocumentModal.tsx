@@ -2,12 +2,14 @@ import { useEffect, useState, type FormEvent } from 'react'
 
 import { ApiError } from '../../api/client'
 import type { DocumentVisibility } from '../../api/documents'
+import type { Folder } from '../../api/folders'
 import type { DocumentItem } from './DocumentTable'
 
 type EditDocumentModalProps = {
   document: DocumentItem | null
+  folders: Folder[]
   onClose: () => void
-  onSave: (documentId: number, payload: { original_name?: string; visibility?: DocumentVisibility }) => Promise<void>
+  onSave: (documentId: number, payload: { original_name?: string; visibility?: DocumentVisibility; folder_id?: number | null }) => Promise<void>
   allowedVisibilities: DocumentVisibility[]
 }
 
@@ -15,9 +17,10 @@ const visibilityLabels: Record<DocumentVisibility, string> = {
   private: '仅自己/受控范围', team: '小组', department: '部门', company: '全公司',
 }
 
-export function EditDocumentModal({ document, onClose, onSave, allowedVisibilities }: EditDocumentModalProps) {
+export function EditDocumentModal({ document, folders, onClose, onSave, allowedVisibilities }: EditDocumentModalProps) {
   const [originalName, setOriginalName] = useState('')
   const [visibility, setVisibility] = useState<DocumentVisibility>('private')
+  const [folderId, setFolderId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [changeVisibility, setChangeVisibility] = useState(false)
@@ -26,6 +29,7 @@ export function EditDocumentModal({ document, onClose, onSave, allowedVisibiliti
     if (document) {
       setOriginalName(document.name)
       setVisibility(document.visibility ?? 'private')
+      setFolderId(document.folderId)
       setError('')
       setSaving(false)
       setChangeVisibility(false)
@@ -42,9 +46,11 @@ export function EditDocumentModal({ document, onClose, onSave, allowedVisibiliti
     setSaving(true)
     setError('')
     try {
+      const folderChanged = folderId !== currentDocument.folderId
       const payload = {
         ...(normalizedName !== currentDocument.name ? { original_name: normalizedName } : {}),
         ...(changeVisibility ? { visibility } : {}),
+        ...(folderChanged ? { folder_id: folderId } : {}),
       }
       await onSave(Number(currentDocument.id), payload)
     } catch (reason) {
@@ -65,7 +71,7 @@ export function EditDocumentModal({ document, onClose, onSave, allowedVisibiliti
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 id="edit-document-title" className="text-xl font-semibold text-on-surface">编辑文档信息</h2>
-            <p className="mt-1 text-sm text-on-surface-variant">修改显示名称和可见范围，不会编辑文档正文。</p>
+            <p className="mt-1 text-sm text-on-surface-variant">修改显示名称、所属文件夹和可见范围，不会编辑文档正文。</p>
           </div>
           <button type="button" onClick={onClose} disabled={saving} aria-label="关闭" className="flex h-9 w-9 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-low disabled:opacity-50"><span className="material-symbols-outlined">close</span></button>
         </div>
@@ -74,6 +80,20 @@ export function EditDocumentModal({ document, onClose, onSave, allowedVisibiliti
           文档名称
           <input required maxLength={255} value={originalName} onChange={(event) => setOriginalName(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-primary focus:bg-white focus:ring-4 focus:ring-blue-50" />
         </label>
+        <label className="mt-5 block text-sm font-medium text-on-surface">
+          所属文件夹
+          <select
+            value={folderId === null ? '' : String(folderId)}
+            onChange={(event) => setFolderId(event.target.value === '' ? null : Number(event.target.value))}
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-primary focus:bg-white focus:ring-4 focus:ring-blue-50"
+          >
+            <option value="">未分配文件夹</option>
+            {folders.map((folder) => (
+              <option key={folder.id} value={folder.id}>{folder.name}</option>
+            ))}
+          </select>
+        </label>
+        <p className="mt-2 text-xs text-on-surface-variant">切换文件夹会同步更新文档分类、知识库列表与检索过滤范围。</p>
         <label className="mt-5 flex items-center gap-3 text-sm font-medium text-on-surface">
           <input type="checkbox" checked={changeVisibility} onChange={(event) => {
             const checked = event.target.checked

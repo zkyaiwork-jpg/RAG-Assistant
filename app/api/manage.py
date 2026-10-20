@@ -10,6 +10,7 @@ from app.models.document import DocumentVisibility
 from app.models.user import User
 from app.services.document_mutation_service import (
     delete_owned_document,
+    document_folder_snapshot,
     update_owned_document_metadata,
 )
 from app.services.audit_service import write_audit_log
@@ -23,6 +24,8 @@ class DocumentUpdateRequest(BaseModel):
     original_name: str | None = None
     visibility: DocumentVisibility | None = None
     team_id: int | None = None
+    # 传 null 表示移回“未分配文件夹”，不传表示不修改所属文件夹。
+    folder_id: int | None = None
 
 
 @router.delete("/documents/{filename}")
@@ -70,12 +73,16 @@ def update_document(
 ):
     old_visibility = None
     old_original_name = None
+    old_folder = None
+    folder_supplied = "folder_id" in request.model_fields_set
     try:
         from app.models.document import Document
         existing = database.get(Document, document_id)
         if existing is not None:
             old_visibility = existing.visibility.value
             old_original_name = existing.original_name
+        if folder_supplied:
+            old_folder = document_folder_snapshot(document_id)
         document = update_owned_document_metadata(
             database,
             current_user,
@@ -84,6 +91,8 @@ def update_document(
             visibility=request.visibility,
             team_id=request.team_id,
             team_id_supplied="team_id" in request.model_fields_set,
+            folder_id=request.folder_id,
+            folder_id_supplied=folder_supplied,
         )
     except Exception as exc:
         write_audit_log(
@@ -102,6 +111,8 @@ def update_document(
         changes.append(f"visibility:{old_visibility}->{request.visibility.value}")
     if request.original_name is not None:
         changes.append(f"original_name_changed={old_original_name != request.original_name.strip()}")
+    if folder_supplied:
+        changes.append(f"folder:{(old_folder or {}).get('folder_id')}->{request.folder_id}")
     write_audit_log(
         database,
         action="document_update",
@@ -113,11 +124,18 @@ def update_document(
         detail=";".join(changes) or "no_fields_changed",
         ip_address=http_request.client.host if http_request.client else None,
     )
+    try:
+        folder_state = document_folder_snapshot(document.id)
+    except Exception:
+        # 修改已提交；这里读取失败只影响响应里的文件夹信息，不影响写入结果。
+        folder_state = {"folder_id": None, "folder_name": None}
     return {
         "document_id": document.id,
         "filename": document.filename,
         "original_name": document.original_name,
         "visibility": document.visibility.value,
         "team_id": document.team_id,
+        "folder_id": folder_state["folder_id"],
+        "folder_name": folder_state["folder_name"],
         "updated_time": serialize_utc_datetime(document.updated_time),
     }
