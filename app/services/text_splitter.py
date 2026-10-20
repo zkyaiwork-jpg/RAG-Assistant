@@ -1,6 +1,14 @@
+"""按行聚合的定长切片。
+
+chunk_size=100 来自评测结论：在 29 篇 / 308 道片段级正向题的对照实验中，
+100 字切片的片段 Top1 比 200 字高 10.4 个百分点、负向分离度（AUC）最高，
+详见 evals/results/rag_chunk_size_v2_summary.csv。
+"""
+
+
 def split_text(
         text: str,
-        chunk_size: int = 200
+        chunk_size: int = 100
 ):
     chunks = []
 

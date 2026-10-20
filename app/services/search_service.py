@@ -2,7 +2,7 @@ import chromadb
 import logging
 from app.core.paths import VECTOR_DB_DIR
 from app.services.embedding_service import MODEL_NAME, encode_texts
-from app.services import reranker_service
+from app.services import answerability_service, reranker_service
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +16,28 @@ collection = client.get_or_create_collection(
 )
 
 
+# 拒答的三段式判定（评测见 evals/results/rejection_signals.json）：
+#   最近距离 < AUTO_PASS     → 直接回答
+#   AUTO_PASS ~ AUTO_REJECT  → 模型判定片段能否支撑回答
+#   最近距离 >= AUTO_REJECT   → 直接拒答
+# 判定器不可用时退回 FALLBACK_PASS 这条纯距离规则。
+DEFAULT_DISTANCE_THRESHOLD = 0.75
+AUTO_PASS_DISTANCE = 0.65
+AUTO_REJECT_DISTANCE = 0.85
+FALLBACK_PASS_DISTANCE = 0.70
+# 候选池宽度。重排只在候选里排序，池子太窄会让正确片段根本进不了重排。
+# 评测（308 道片段级题）显示：池 3 → 池 10 使片段 Top1 从 91.2% 升到 94.5%。
+CANDIDATE_POOL = 10
+
+
 def search_documents(
     query: str,
     top_k: int = 3,
     folder_id: int | None = None,
     file_type: str | None = None,
     allowed_document_ids: set[int] | None = None,
+    distance_threshold: float = DEFAULT_DISTANCE_THRESHOLD,
+    rejection_mode: str = "cascade",
 ):
     logger.info("Knowledge search started top_k=%s", top_k)
 
@@ -31,6 +47,7 @@ def search_documents(
         )
         return {"results": []}
 
+    n_results = max(CANDIDATE_POOL, top_k * 3)
     try:
         query_vector = encode_texts([query])
         filters = []
@@ -51,7 +68,7 @@ def search_documents(
 
         query_kwargs = {
             "query_embeddings": query_vector.tolist(),
-            "n_results": top_k,
+            "n_results": n_results,
         }
         if where:
             query_kwargs["where"] = where
@@ -98,31 +115,70 @@ def search_documents(
             }
         )
 
+    if not authorized_candidates:
+        logger.info("Knowledge search completed top_k=%s result_count=0", top_k)
+        return {"results": []}
+
+    best_distance = min(item["distance"] for item in authorized_candidates)
+
+    if rejection_mode == "none":
+        pass
+    elif rejection_mode == "distance":
+        if best_distance >= distance_threshold:
+            logger.info(
+                "Knowledge search rejected mode=distance best_distance=%s threshold=%s",
+                round(best_distance, 4), distance_threshold,
+            )
+            return {"results": []}
+    else:
+        if best_distance >= AUTO_REJECT_DISTANCE:
+            logger.info(
+                "Knowledge search rejected mode=cascade stage=hard best_distance=%s",
+                round(best_distance, 4),
+            )
+            return {"results": []}
+
     ranked_candidates = authorized_candidates
-    if authorized_candidates:
-        try:
-            ranked_candidates = reranker_service.rerank_documents(
-                query,
-                authorized_candidates,
-            )
-        except Exception as exc:
-            # Rerank is an ordering enhancement. Preserve the permission-safe
-            # Chroma order when loading or inference fails; never log content.
-            logger.error(
-                "Knowledge search rerank failed fallback=chroma_order "
-                "candidate_count=%s error_type=%s",
-                len(authorized_candidates),
-                type(exc).__name__,
-            )
+    try:
+        ranked_candidates = reranker_service.rerank_documents(
+            query,
+            authorized_candidates,
+        )
+    except Exception as exc:
+        # Rerank is an ordering enhancement. Preserve the permission-safe
+        # Chroma order when loading or inference fails; never log content.
+        logger.error(
+            "Knowledge search rerank failed fallback=chroma_order "
+            "candidate_count=%s error_type=%s",
+            len(authorized_candidates),
+            type(exc).__name__,
+        )
 
-    # 距离越小越相似；Rerank 只改变排序，不改变原始距离和阈值。
-    results = [
-        item
-        for item in ranked_candidates
-        if item["distance"] < 0.8
-    ]
+    if rejection_mode == "cascade" and best_distance >= AUTO_PASS_DISTANCE:
+        # 模糊带：距离不足以直接回答，也没有远到该拒答，交给模型看片段能否支撑回答。
+        verdict = answerability_service.answerable(
+            query,
+            [item["content"] for item in ranked_candidates[:3]],
+        )
+        if verdict is False:
+            logger.info(
+                "Knowledge search rejected mode=cascade stage=judge best_distance=%s",
+                round(best_distance, 4),
+            )
+            return {"results": []}
+        if verdict is None and best_distance >= FALLBACK_PASS_DISTANCE:
+            logger.info(
+                "Knowledge search rejected mode=cascade stage=fallback best_distance=%s",
+                round(best_distance, 4),
+            )
+            return {"results": []}
 
-    logger.info("Knowledge search completed top_k=%s result_count=%s", top_k, len(results))
+    results = ranked_candidates[:top_k]
+
+    logger.info(
+        "Knowledge search completed top_k=%s result_count=%s best_distance=%s mode=%s",
+        top_k, len(results), round(best_distance, 4), rejection_mode,
+    )
     return {
         "results": results
     }
