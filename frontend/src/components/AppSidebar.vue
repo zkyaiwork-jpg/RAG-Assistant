@@ -1,130 +1,94 @@
-<script setup lang="ts">
-import { computed } from 'vue'
-import { useRoute } from 'vue-router'
-import { useUserStore } from '../stores/user'
-
-defineEmits<{ navigate: [] }>()
-
-const route = useRoute()
-const userStore = useUserStore()
-
-interface NavigationItem {
-  index: string
-  label: string
-  icon: 'home' | 'chat' | 'document' | 'search' | 'knowledge' | 'user' | 'audit'
-  visible: boolean
-  disabled?: boolean
-}
-
-const iconPaths: Record<NavigationItem['icon'], string[]> = {
-  home: [
-    'M3 11.5 12 4l9 7.5',
-    'M5 10v10h14V10',
-    'M9 20v-6h6v6',
-  ],
-  chat: [
-    'M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z',
-    'M8 9h8',
-    'M8 13h5',
-  ],
-  document: [
-    'M6 3h9l4 4v14H6z',
-    'M15 3v5h4',
-    'M9 13h6',
-    'M9 17h6',
-  ],
-  search: [
-    'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z',
-    'm16 16 4 4',
-  ],
-  knowledge: [
-    'M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3z',
-    'M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6',
-    'M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6',
-  ],
-  user: [
-    'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
-    'M4 21a8 8 0 0 1 16 0',
-  ],
-  audit: [
-    'M5 3h14v18H5z',
-    'M9 3V1',
-    'M15 3V1',
-    'M9 9h6',
-    'M9 13h6',
-    'M9 17h4',
-  ],
-}
-
-const navigationGroups = computed(() => {
-  const knowledgeItems: NavigationItem[] = [
-    { index: '/', label: '首页', icon: 'home', visible: true },
-    { index: '/chat', label: 'AI 问答', icon: 'chat', visible: true },
-    { index: '/documents', label: '文档管理', icon: 'document', visible: true },
-    { index: '/search', label: '智能检索', icon: 'search', visible: userStore.hasPermission('file_view') },
-    { index: 'knowledge-unavailable', label: '知识库管理', icon: 'knowledge', visible: true, disabled: true },
-  ]
-  const organizationItems: NavigationItem[] = [
-    {
-      index: '/users',
-      label: '用户管理',
-      icon: 'user',
-      visible: userStore.hasPermission('user_manage'),
-    },
-    {
-      index: '/audit',
-      label: '审计日志',
-      icon: 'audit',
-      visible: userStore.hasPermission('audit_view'),
-    },
-  ]
-
-  return [
-    { label: '知识工作', items: knowledgeItems },
-    { label: '组织管理', items: organizationItems },
-  ].map((group) => ({
-    ...group,
-    items: group.items.filter((item) => item.visible),
-  })).filter((group) => group.items.length > 0)
-})
-</script>
-
 <template>
-  <div class="sidebar-content">
-    <div class="brand">
-      <div class="brand-symbol" aria-hidden="true">知</div>
-      <div class="brand-copy">
-        <strong>企业 AI 知识库助手</strong>
-        <span>企业知识管理平台</span>
-      </div>
+  <aside :class="['sidebar', open ? 'open' : '']">
+    <div class="sidebar-brand">
+      <span class="sidebar-brand-mark">AI</span>
+      <span class="sidebar-brand-text">企业知识库</span>
     </div>
 
-    <nav class="app-navigation" aria-label="主导航">
-      <section v-for="group in navigationGroups" :key="group.label" class="navigation-group">
-        <h2>{{ group.label }}</h2>
-        <el-menu :default-active="route.path" router class="sidebar-menu" @select="$emit('navigate')">
-          <el-menu-item
-            v-for="item in group.items"
-            :key="item.index"
-            :index="item.index"
-            :disabled="item.disabled"
-          >
-            <el-tooltip :disabled="!item.disabled" content="暂未开放" placement="right">
-              <span class="navigation-item-content">
-                <svg class="navigation-icon" viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    v-for="path in iconPaths[item.icon]"
-                    :key="path"
-                    :d="path"
-                  />
-                </svg>
-                <span class="navigation-item-label">{{ item.label }}</span>
-                <span v-if="item.disabled" class="navigation-item-status">未开放</span>
-              </span>
-            </el-tooltip>
-          </el-menu-item>
-        </el-menu>
-      </section>
+    <nav class="sidebar-nav">
+      <template v-for="group in visibleGroups" :key="group.title">
+        <p class="sidebar-group-title">{{ group.title }}</p>
+        <router-link
+          v-for="item in group.items"
+          :key="item.name"
+          :to="{ name: item.name }"
+          :class="['nav-item', isActive(item.name) ? 'active' : '']"
+          @click="$emit('navigate')"
+        >
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path :d="icons[item.icon]" />
+          </svg>
+          <span>{{ item.label }}</span>
+        </router-link>
+      </template>
     </nav>
-  </div>
+
+    <div class="sidebar-footer">
+      <div>企业 AI 知识库助手</div>
+      <div>Vue 3 + FastAPI · v1.0</div>
+    </div>
+  </aside>
 </template>
+
+<script setup>
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+import { useAuth } from '../stores/auth'
+
+defineProps({ open: Boolean })
+defineEmits(['navigate'])
+
+const route = useRoute()
+const auth = useAuth()
+
+const icons = {
+  grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  file: 'M6 3h8l4 4v14H6z M14 3v4h4',
+  chat: 'M4 5h16v11H9l-5 4z',
+  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4',
+  users: 'M12 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M4 21c0-4 3.6-6 8-6s8 2 8 6',
+  building: 'M5 21V5l7-2v18 M12 21h7V9l-7-2 M8 9h1 M8 13h1 M8 17h1 M16 12h1 M16 16h1',
+  team: 'M9 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M2 20c0-3 3-5 7-5s7 2 7 5 M17 11a3 3 0 1 0 0-5.9 M22 20c0-2.5-2-4.2-5-4.7',
+  audit: 'M7 3h7l4 4v14H7z M10 12h6 M10 16h6 M10 8h3',
+  sliders: 'M4 7h9 M17 7h3 M4 12h4 M12 12h8 M4 17h7 M15 17h5 M13 5v4 M8 10v4 M11 15v4',
+}
+
+const groups = [
+  {
+    title: '概览',
+    items: [{ name: 'dashboard', label: '工作台', icon: 'grid' }],
+  },
+  {
+    title: '知识',
+    items: [
+      { name: 'documents', label: '知识库文档', icon: 'file', permission: 'file_view' },
+      { name: 'chat', label: 'AI 问答', icon: 'chat', permission: 'file_view' },
+      { name: 'search', label: '智能检索', icon: 'search', permission: 'file_view' },
+    ],
+  },
+  {
+    title: '管理',
+    items: [
+      { name: 'users', label: '用户管理', icon: 'users', permission: 'user_manage' },
+      { name: 'departments', label: '部门管理', icon: 'building', permission: 'user_manage' },
+      { name: 'teams', label: '团队管理', icon: 'team', permission: 'user_manage' },
+      { name: 'audit', label: '审计日志', icon: 'audit', permission: 'audit_view' },
+      { name: 'settings', label: '模型设置', icon: 'sliders', permission: 'model_manage' },
+    ],
+  },
+]
+
+// 没权限的菜单直接不渲染
+const visibleGroups = computed(() =>
+  groups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => !item.permission || auth.hasPermission(item.permission)),
+    }))
+    .filter((group) => group.items.length > 0),
+)
+
+function isActive(name) {
+  return route.name === name
+}
+</script>

@@ -2,7 +2,7 @@
 
 > 面向企业内部知识问答场景的 RAG 知识库系统，支持企业组织架构、RBAC 权限控制、文档级可见性、会话隔离、审计日志与 RAG 检索效果评测。
 
-基于 FastAPI + React + Chroma + BGE + DeepSeek 构建。
+基于 FastAPI + Vue 3 + Chroma + BGE + DeepSeek 构建。
 
 系统将企业内部文档进行解析、分块和向量化存储，在用户提问时通过语义检索召回相关知识片段，并结合 DeepSeek 生成带来源引用的回答。
 
@@ -220,7 +220,7 @@ Department 与 Team 建立组织关系，用户可以归属于对应部门和团
 
 ```text
 ┌─────────────────────────────┐
-│       React + TypeScript    │
+│   Vue 3 + HTML/CSS/JS       │
 │           Frontend          │
 └──────────────┬──────────────┘
                │ HTTP API
@@ -424,11 +424,12 @@ bge-reranker-base（CrossEncoder，CPU）
 
 ## Frontend
 
-* React
-* TypeScript
-* Vite
-* Tailwind CSS
-* Axios
+* Vue 3（单文件组件，`<template>` + `<script setup>` + `<style scoped>`）
+* HTML + CSS（样式全部手写，不依赖 UI 组件库）
+* JavaScript
+* Vue Router（页面路由 + 登录/权限守卫）
+* Axios（统一请求实例、拦截器）
+* Vite（开发服务器与打包）
 
 ## Backend
 
@@ -453,6 +454,39 @@ bge-reranker-base（CrossEncoder，CPU）
 * TXT 纯文本
 
 三种格式均已在后端解析器注册（`app/services/parsers/`），新增格式只需实现 `BaseParser` 子类并注册到工厂。
+
+---
+
+# 前端实现（Vue 3）
+
+前端是独立工程（`frontend/`），技术栈为 **Vue 3 + HTML + CSS + JavaScript**，不依赖 TypeScript、UI 组件库或 CSS 框架。
+
+* 页面用单文件组件（`.vue`）组织：`<template>` 写结构、`<script setup>` 写逻辑、`<style scoped>` 写样式
+* 页面跳转与权限拦截用 Vue Router，接口请求统一走一个 Axios 实例
+* 弹窗、表格、分页、消息提示、加载骨架全部是手写 HTML + CSS
+
+## 一次请求怎么走
+
+```text
+页面 → api/xxx.js → Axios 实例（自动带 JWT）→ /api/* → Vite 代理（开发）/ nginx（生产）→ FastAPI
+```
+
+开发环境 Vite 把 `/api/*` 代理到 `http://127.0.0.1:8000/*` 并去掉 `/api` 前缀；生产环境 nginx 做同样的事，因此后端路由本身不带 `/api`。
+
+## 前端如何配合权限
+
+1. **路由级**：路由上声明 `meta.permission`，`router.beforeEach` 里校验，缺权限回工作台；未登录带 `redirect` 参数跳登录页。
+2. **菜单级**：侧边栏按权限过滤，没权限的入口不渲染。
+3. **按钮级**：页面里按 `hasPermission('file_edit')` 之类决定按钮显隐。
+4. **后端为准**：以上都只是"少让人看到"，真正的校验在 FastAPI 依赖里，绕过界面直接调接口同样会被拦。
+
+## 几个实现细节
+
+* **登录态**：JWT 存 localStorage，Axios 请求拦截器统一加 `Authorization: Bearer xxx`；任意接口返回 401 都会清凭证并跳登录。
+* **Markdown 渲染**：AI 回答按 Markdown 渲染，使用 `src/utils/markdown.js` 里约 90 行的渲染器——先整体转义 HTML 再替换语法，避免 XSS，也不引入第三方库。
+* **会话 id**：提问返回的 `conversation_id` 立即记录并在下一轮带回，保证同一会话连续对话。
+* **上传**：`FormData` 提交，支持文件夹归档与四种可见范围；可见范围下拉按账号的 `file_publish_*` 权限过滤。
+* **编辑**：只提交真正改动过的字段，避免"只改个名字"触发可见范围校验而失败。
 
 ---
 
@@ -495,6 +529,21 @@ bge-reranker-base（CrossEncoder，CPU）
 * Alembic 数据库迁移
 * RAG Evaluation
 
+### 前端页面（Vue 3）
+
+| 路由 | 页面 | 需要的权限点 |
+| --- | --- | --- |
+| `/login` | 登录 | 公开 |
+| `/` | 工作台（文档/分块/提问统计、服务状态、最近入库） | 登录 |
+| `/documents` | 知识库文档（上传、编辑、删除、文件夹归档、可见范围） | `file_view` |
+| `/chat` | AI 问答（会话列表、答案 + 来源卡片、Markdown 渲染） | `file_view` |
+| `/search` | 智能检索（按意思找原文，显示命中片段与距离） | `file_view` |
+| `/users` | 用户管理（新建、编辑、重置密码、停用/删除） | `user_manage` |
+| `/departments` | 部门管理 | `user_manage` |
+| `/teams` | 团队（小组）管理 | `user_manage` |
+| `/audit` | 审计日志（按操作/结果筛选、分页） | `audit_view` |
+| `/settings` | 模型设置（服务商、模型名、接口地址、密钥、连接测试） | `model_manage` |
+
 ---
 
 # 项目目录
@@ -527,9 +576,23 @@ enterprise-ai-kb/
 │
 ├── tests/                   # 214 个后端测试
 │
-├── frontend-react/          # React 前端（当前）
+├── frontend/                # Vue 3 前端（当前）
+│   ├── index.html           # 唯一入口
+│   ├── vite.config.js       # 开发服务器 + /api 代理
+│   ├── Dockerfile           # 多阶段构建 → nginx 托管
+│   ├── nginx.conf           # 静态托管 + /api 反向代理
+│   └── src/
+│       ├── main.js          # 创建应用、注册路由、401 统一处理
+│       ├── App.vue          # 根组件（router-view + 全局提示）
+│       ├── router/          # 路由表与登录/权限守卫
+│       ├── stores/          # 登录态与权限（auth）、全局提示（toast）
+│       ├── api/             # Axios 实例与各业务接口
+│       ├── utils/           # token、格式化、极简 Markdown 渲染
+│       ├── components/      # 布局、侧边栏、顶栏、弹窗、空状态、加载骨架
+│       ├── views/           # 10 个页面
+│       └── styles/          # 全局样式（CSS 变量 + 手写样式）
 │
-├── frontend/                # 历史前端（Streamlit + Vue，未启用）
+├── frontend-react/          # 早期 React 前端（已停用，保留备查）
 │
 ├── desktop/                 # Electron 桌面封装
 │
@@ -648,7 +711,7 @@ http://127.0.0.1:8000/docs
 # 启动前端
 
 ```bash
-cd frontend-react
+cd frontend
 npm install
 npm run dev
 ```

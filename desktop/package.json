@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "enterprise-ai-kb-desktop",
   "version": "1.0.0",
   "private": true,
@@ -7,10 +7,10 @@
   "scripts": {
     "build:electron": "tsc -p tsconfig.json",
     "test:settings": "npm run build:electron && node test-settings.cjs",
-    "build:frontend": "cross-env VITE_API_BASE_URL=/api npm --prefix ../frontend-react run build",
+    "build:frontend": "cross-env VITE_API_BASE_URL=/api npm --prefix ../frontend run build",
     "build:model": "..\\venv\\Scripts\\python.exe prepare_model.py",
     "build:backend": "..\\venv\\Scripts\\python.exe -m PyInstaller --noconfirm --distpath backend-dist --workpath backend-build backend.spec",
-    "dev:ui": "npm --prefix ../frontend-react run dev -- --host 127.0.0.1",
+    "dev:ui": "npm --prefix ../frontend run dev -- --host 127.0.0.1",
     "dev:electron": "npm run build:electron && cross-env ELECTRON_DEV_URL=http://127.0.0.1:5173 electron .",
     "dev": "concurrently -k -s first \"npm:dev:ui\" \"npm:dev:electron\"",
     "pack": "npm run build:frontend && npm run build:model && npm run build:backend && npm run build:electron && electron-builder --dir",
@@ -26,7 +26,7 @@
   },
   "build": {
     "appId": "com.enterprise.ai.knowledgebase",
-    "productName": "企业AI知识库助手",
+    "productName": "浼佷笟AI鐭ヨ瘑搴撳姪鎵?,
     "directories": {
       "output": "release"
     },
@@ -36,7 +36,7 @@
     ],
     "extraResources": [
       {
-        "from": "../frontend-react/dist",
+        "from": "../frontend/dist",
         "to": "frontend"
       },
       {
@@ -73,3 +73,4 @@
     "electron-winstaller": true
   }
 }
+
