@@ -22,11 +22,12 @@ def test_electron_keeps_backend_lifecycle_management():
     assert "app.on('before-quit', stopChildren)" in source
 
 
-def test_dashboard_polls_health_and_exposes_startup_states():
-    source = (PROJECT_ROOT / "frontend-react" / "src" / "pages" / "Dashboard.tsx").read_text(encoding="utf-8")
+def test_dashboard_reads_backend_health_and_shows_service_state():
+    source = (PROJECT_ROOT / "frontend" / "src" / "views" / "DashboardView.vue").read_text(
+        encoding="utf-8"
+    )
 
-    assert "getHealth()" in source
-    assert "setTimeout(() => { void pollHealth(attempt + 1) }, 1_000)" in source
-    assert "AI服务启动中" in source
-    assert "AI服务启动失败，请检查日志。" in source
-    assert "result.status === 'healthy'" in source
+    assert "fetchHealth" in source
+    assert "health.value.status" in source
+    assert "运行正常" in source
+    assert "部分异常" in source

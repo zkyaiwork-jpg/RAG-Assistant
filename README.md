@@ -534,6 +534,7 @@ bge-reranker-base（CrossEncoder，CPU）
 | 路由 | 页面 | 需要的权限点 |
 | --- | --- | --- |
 | `/login` | 登录 | 公开 |
+| `/welcome` | 桌面版首次启动的称呼设置（浏览器访问自动回首页） | 公开 |
 | `/` | 工作台（文档/分块/提问统计、服务状态、最近入库） | 登录 |
 | `/documents` | 知识库文档（上传、编辑、删除、文件夹归档、可见范围） | `file_view` |
 | `/chat` | AI 问答（会话列表、答案 + 来源卡片、Markdown 渲染） | `file_view` |
@@ -591,8 +592,6 @@ enterprise-ai-kb/
 │       ├── components/      # 布局、侧边栏、顶栏、弹窗、空状态、加载骨架
 │       ├── views/           # 10 个页面
 │       └── styles/          # 全局样式（CSS 变量 + 手写样式）
-│
-├── frontend-react/          # 早期 React 前端（已停用，保留备查）
 │
 ├── desktop/                 # Electron 桌面封装
 │

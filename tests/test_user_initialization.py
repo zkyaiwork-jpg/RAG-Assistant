@@ -18,14 +18,12 @@ def test_electron_routes_new_user_to_welcome_and_keeps_user_ipc_private():
     assert "deepseek_api_key" not in user_info_handler
 
 
-def test_react_uses_dynamic_user_name_without_hardcoded_job_title():
-    top_bar = (PROJECT_ROOT / "frontend-react" / "src" / "components" / "TopBar.tsx").read_text(encoding="utf-8")
-    hero = (PROJECT_ROOT / "frontend-react" / "src" / "components" / "dashboard" / "HeroCard.tsx").read_text(encoding="utf-8")
-    welcome = (PROJECT_ROOT / "frontend-react" / "src" / "pages" / "Welcome.tsx").read_text(encoding="utf-8")
+def test_vue_uses_dynamic_user_name_without_hardcoded_job_title():
+    top_bar = (PROJECT_ROOT / "frontend" / "src" / "components" / "AppTopbar.vue").read_text(encoding="utf-8")
+    welcome = (PROJECT_ROOT / "frontend" / "src" / "views" / "WelcomeView.vue").read_text(encoding="utf-8")
 
     assert "displayName" in top_bar
     assert "张伟" not in top_bar
     assert "产品经理" not in top_bar
-    assert "你好，{userName} 👋" in hero
     assert "saveUserName" in welcome
-    assert "navigate('/', { replace: true })" in welcome
+    assert "router.replace({ name: 'dashboard' })" in welcome

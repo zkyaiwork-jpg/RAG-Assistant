@@ -19,11 +19,11 @@ data
 **/data/chat_history.db
 
 frontend
-frontend-react/node_modules
-frontend-react/dist
-frontend-react/.env
-frontend-react/.env.*
-!frontend-react/.env.example
+frontend/node_modules
+frontend/dist
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
 
 ai_1
 ai_2

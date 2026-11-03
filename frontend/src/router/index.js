@@ -4,6 +4,12 @@ import { getToken } from '../utils/token'
 
 const routes = [
   {
+    path: '/welcome',
+    name: 'welcome',
+    component: () => import('../views/WelcomeView.vue'),
+    meta: { public: true, title: '欢迎' },
+  },
+  {
     path: '/login',
     name: 'login',
     component: () => import('../views/LoginView.vue'),

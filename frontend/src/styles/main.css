@@ -1104,6 +1104,33 @@ a {
   color: var(--text-muted);
 }
 
+/* ---------- 桌面版（Electron）标题栏 ---------- */
+.desktop-title-bar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 100;
+  height: 40px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f5f7fb;
+  user-select: none;
+}
+
+.desktop-title-bar-drag-region {
+  width: calc(100% - 144px);
+  height: 100%;
+  -webkit-app-region: drag;
+}
+
+.desktop-content {
+  margin-top: 40px;
+  min-height: calc(100vh - 40px);
+}
+
+/* 侧边栏是 fixed 定位，桌面版要把它的起点让到标题栏下面 */
+.desktop-content .sidebar {
+  top: 40px;
+}
+
 /* ---------- 响应式 ---------- */
 @media (max-width: 900px) {
   .sidebar {

@@ -46,12 +46,16 @@ print(json.dumps({
     # this verification offline makes it deterministic and proves the cached
     # production model can be loaded without a network dependency.
     environment["HF_HUB_OFFLINE"] = "1"
+    # The child prints UTF-8 (model/progress output); force the same encoding on
+    # both sides so Chinese Windows' default GBK decoder cannot fail mid-read.
+    environment["PYTHONIOENCODING"] = "utf-8"
     completed = subprocess.run(
         [sys.executable, "-c", script],
         cwd=PROJECT_ROOT,
         env=environment,
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=180,
     )
     assert completed.returncode == 0, completed.stderr
